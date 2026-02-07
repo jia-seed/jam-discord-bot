@@ -19,10 +19,11 @@ Referrals:
 
 import os
 import time
-import sqlite3
 import discord
 from discord import app_commands
 from discord.ext import commands
+import psycopg2
+from psycopg2 import sql
 
 # ---------------------------------------------------------------------------
 # Configuration - edit these to customize your bot
@@ -54,18 +55,23 @@ IGNORED_PREFIXES = ("!", "/", "?", ".")  # ignore bot commands
 REFERRAL_CHANNEL_NAME = "general"
 
 # ---------------------------------------------------------------------------
-# Database setup
+# Database setup (PostgreSQL)
 # ---------------------------------------------------------------------------
 
-DB_PATH = "jam_bot.db"
+# railway auto-sets DATABASE_URL when you add a postgres addon
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+def get_conn():
+    return psycopg2.connect(DATABASE_URL)
 
 
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     c = conn.cursor()
     c.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
+            user_id BIGINT PRIMARY KEY,
             xp INTEGER DEFAULT 0,
             level INTEGER DEFAULT 0,
             referrals INTEGER DEFAULT 0,
@@ -74,17 +80,16 @@ def init_db():
     """)
     c.execute("""
         CREATE TABLE IF NOT EXISTS referral_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            referrer_id INTEGER NOT NULL,
-            referred_id INTEGER NOT NULL UNIQUE,
-            timestamp REAL NOT NULL
+            id SERIAL PRIMARY KEY,
+            referrer_id BIGINT NOT NULL,
+            referred_id BIGINT NOT NULL UNIQUE,
+            timestamp DOUBLE PRECISION NOT NULL
         )
     """)
-    # maps invite codes to the user who created them
     c.execute("""
         CREATE TABLE IF NOT EXISTS invite_owners (
             invite_code TEXT PRIMARY KEY,
-            user_id INTEGER NOT NULL
+            user_id BIGINT NOT NULL
         )
     """)
     conn.commit()
@@ -92,12 +97,12 @@ def init_db():
 
 
 def get_user(user_id: int) -> dict:
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT user_id, xp, level, referrals, total_messages FROM users WHERE user_id = ?", (user_id,))
+    c.execute("SELECT user_id, xp, level, referrals, total_messages FROM users WHERE user_id = %s", (user_id,))
     row = c.fetchone()
     if row is None:
-        c.execute("INSERT INTO users (user_id) VALUES (?)", (user_id,))
+        c.execute("INSERT INTO users (user_id) VALUES (%s)", (user_id,))
         conn.commit()
         conn.close()
         return {"user_id": user_id, "xp": 0, "level": 0, "referrals": 0, "total_messages": 0}
@@ -106,37 +111,39 @@ def get_user(user_id: int) -> dict:
 
 
 def update_user(user_id: int, **kwargs):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     c = conn.cursor()
-    sets = ", ".join(f"{k} = ?" for k in kwargs)
+    sets = ", ".join(f"{k} = %s" for k in kwargs)
     vals = list(kwargs.values()) + [user_id]
-    c.execute(f"UPDATE users SET {sets} WHERE user_id = ?", vals)
+    c.execute(f"UPDATE users SET {sets} WHERE user_id = %s", vals)
     conn.commit()
     conn.close()
 
 
 def add_referral(referrer_id: int, referred_id: int) -> bool:
     """returns True if referral was recorded, False if already exists."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     c = conn.cursor()
     try:
         c.execute(
-            "INSERT INTO referral_log (referrer_id, referred_id, timestamp) VALUES (?, ?, ?)",
+            "INSERT INTO referral_log (referrer_id, referred_id, timestamp) VALUES (%s, %s, %s)",
             (referrer_id, referred_id, time.time()),
         )
         conn.commit()
         conn.close()
         return True
-    except sqlite3.IntegrityError:
+    except psycopg2.IntegrityError:
+        conn.rollback()
         conn.close()
         return False
 
 
 def save_invite_owner(invite_code: str, user_id: int):
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     c = conn.cursor()
     c.execute(
-        "INSERT OR REPLACE INTO invite_owners (invite_code, user_id) VALUES (?, ?)",
+        """INSERT INTO invite_owners (invite_code, user_id) VALUES (%s, %s)
+           ON CONFLICT (invite_code) DO UPDATE SET user_id = EXCLUDED.user_id""",
         (invite_code, user_id),
     )
     conn.commit()
@@ -144,18 +151,18 @@ def save_invite_owner(invite_code: str, user_id: int):
 
 
 def get_invite_owner(invite_code: str) -> int | None:
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT user_id FROM invite_owners WHERE invite_code = ?", (invite_code,))
+    c.execute("SELECT user_id FROM invite_owners WHERE invite_code = %s", (invite_code,))
     row = c.fetchone()
     conn.close()
     return row[0] if row else None
 
 
 def get_leaderboard(limit: int = 10) -> list[dict]:
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT user_id, xp, level, referrals, total_messages FROM users ORDER BY xp DESC LIMIT ?", (limit,))
+    c.execute("SELECT user_id, xp, level, referrals, total_messages FROM users ORDER BY xp DESC LIMIT %s", (limit,))
     rows = c.fetchall()
     conn.close()
     return [
@@ -241,9 +248,9 @@ async def ensure_invite_link(member: discord.Member) -> str | None:
         return None
 
     # check if they already have one in the db
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     c = conn.cursor()
-    c.execute("SELECT invite_code FROM invite_owners WHERE user_id = ?", (member.id,))
+    c.execute("SELECT invite_code FROM invite_owners WHERE user_id = %s", (member.id,))
     row = c.fetchone()
     conn.close()
 
@@ -547,10 +554,10 @@ async def mylink(interaction: discord.Interaction):
 @bot.tree.command(name="myreferrals", description="see who you've referred")
 async def myreferrals(interaction: discord.Interaction):
     user_id = interaction.user.id
-    conn = sqlite3.connect(DB_PATH)
+    conn = get_conn()
     c = conn.cursor()
     c.execute(
-        "SELECT referred_id, timestamp FROM referral_log WHERE referrer_id = ? ORDER BY timestamp DESC LIMIT 20",
+        "SELECT referred_id, timestamp FROM referral_log WHERE referrer_id = %s ORDER BY timestamp DESC LIMIT 20",
         (user_id,),
     )
     rows = c.fetchall()
