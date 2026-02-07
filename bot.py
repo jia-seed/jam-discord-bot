@@ -303,20 +303,32 @@ async def dm_invite_link(member: discord.Member, invite_url: str):
 @bot.event
 async def on_ready():
     init_db()
-    # cache invites and generate links for all existing members
+    # cache invites for all guilds
     for guild in bot.guilds:
         await cache_invites(guild)
-        print(f"generating invite links for existing members in {guild.name}...")
-        for member in guild.members:
-            if not member.bot:
-                await ensure_invite_link(member)
-        print(f"done. {len([m for m in guild.members if not m.bot])} members have invite links.")
     try:
         synced = await bot.tree.sync()
         print(f"synced {len(synced)} slash commands")
     except Exception as e:
         print(f"failed to sync commands: {e}")
     print(f"jam bot is online as {bot.user}")
+    # generate invite links in the background so commands work immediately
+    for guild in bot.guilds:
+        bot.loop.create_task(generate_links_for_guild(guild))
+
+
+async def generate_links_for_guild(guild: discord.Guild):
+    """generate invite links for existing members in the background."""
+    import asyncio
+    count = 0
+    for member in guild.members:
+        if not member.bot:
+            await ensure_invite_link(member)
+            count += 1
+            # small delay to avoid rate limits
+            if count % 5 == 0:
+                await asyncio.sleep(2)
+    print(f"done generating invite links for {count} members in {guild.name}")
 
 
 @bot.event
