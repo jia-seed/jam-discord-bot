@@ -485,152 +485,181 @@ async def on_message(message: discord.Message):
 
 @bot.tree.command(name="rank", description="check your current rank and xp")
 async def rank(interaction: discord.Interaction, member: discord.Member = None):
-    target = member or interaction.user
-    user = get_user(target.id)
+    await interaction.response.defer()
+    try:
+        target = member or interaction.user
+        user = get_user(target.id)
 
-    current_level = user["level"]
-    next_level = current_level + 1
-    role_name = ROLE_NAMES.get(current_level, "unranked")
-    emoji = level_emoji(current_level)
+        current_level = user["level"]
+        next_level = current_level + 1
+        role_name = ROLE_NAMES.get(current_level, "unranked")
+        emoji = level_emoji(current_level)
 
-    # progress to next level
-    if next_level in LEVEL_THRESHOLDS:
-        next_req = LEVEL_THRESHOLDS[next_level]
-        xp_progress = f"{user['xp']}/{next_req['xp']} xp"
-        ref_progress = f"{user['referrals']}/{next_req['referrals']} referrals"
-    else:
-        xp_progress = f"{user['xp']} xp (max level!)"
-        ref_progress = f"{user['referrals']} referrals"
+        # progress to next level
+        if next_level in LEVEL_THRESHOLDS:
+            next_req = LEVEL_THRESHOLDS[next_level]
+            xp_progress = f"{user['xp']}/{next_req['xp']} xp"
+            ref_progress = f"{user['referrals']}/{next_req['referrals']} referrals"
+        else:
+            xp_progress = f"{user['xp']} xp (max level!)"
+            ref_progress = f"{user['referrals']} referrals"
 
-    embed = discord.Embed(
-        title=f"{emoji} {target.display_name}'s rank",
-        color=discord.Color.from_str({1: "#ff6b6b", 2: "#748ffc", 3: "#ffd43b"}.get(current_level, "#868e96")),
-    )
-    embed.add_field(name="level", value=f"{current_level} ({role_name})", inline=True)
-    embed.add_field(name="xp", value=xp_progress, inline=True)
-    embed.add_field(name="referrals", value=ref_progress, inline=True)
-    embed.add_field(name="total messages", value=str(user["total_messages"]), inline=True)
-    embed.set_thumbnail(url=target.display_avatar.url)
+        embed = discord.Embed(
+            title=f"{emoji} {target.display_name}'s rank",
+            color=discord.Color.from_str({1: "#ff6b6b", 2: "#748ffc", 3: "#ffd43b"}.get(current_level, "#868e96")),
+        )
+        embed.add_field(name="level", value=f"{current_level} ({role_name})", inline=True)
+        embed.add_field(name="xp", value=xp_progress, inline=True)
+        embed.add_field(name="referrals", value=ref_progress, inline=True)
+        embed.add_field(name="total messages", value=str(user["total_messages"]), inline=True)
+        embed.set_thumbnail(url=target.display_avatar.url)
 
-    await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
+    except Exception as e:
+        print(f"error in /rank: {e}")
+        await interaction.followup.send("something went wrong, check the logs!", ephemeral=True)
 
 
 @bot.tree.command(name="mylink", description="see your personal invite link")
 async def mylink(interaction: discord.Interaction):
-    guild = interaction.guild
-    if guild is None:
-        await interaction.response.send_message("this only works in a server!", ephemeral=True)
-        return
+    await interaction.response.defer(ephemeral=True)
+    try:
+        guild = interaction.guild
+        if guild is None:
+            await interaction.followup.send("this only works in a server!")
+            return
 
-    invite_url = await ensure_invite_link(interaction.user)
-    if not invite_url:
-        await interaction.response.send_message(
-            "couldn't create an invite link. make sure i have the 'create invite' permission!",
-            ephemeral=True,
+        invite_url = await ensure_invite_link(interaction.user)
+        if not invite_url:
+            await interaction.followup.send(
+                "couldn't create an invite link. make sure i have the 'create invite' permission!"
+            )
+            return
+
+        user = get_user(interaction.user.id)
+
+        embed = discord.Embed(
+            title="🔗 your personal invite link",
+            description=f"**{invite_url}**\n\nshare this link! anyone who joins through it will count as your referral.",
+            color=discord.Color.green(),
         )
-        return
+        embed.add_field(name="current referrals", value=str(user["referrals"]), inline=True)
 
-    user = get_user(interaction.user.id)
+        next_level = user["level"] + 1
+        if next_level in LEVEL_THRESHOLDS:
+            refs_needed = LEVEL_THRESHOLDS[next_level]["referrals"]
+            embed.add_field(
+                name=f"referrals to {ROLE_NAMES.get(next_level, f'level {next_level}')}",
+                value=f"{user['referrals']}/{refs_needed}",
+                inline=True,
+            )
 
-    embed = discord.Embed(
-        title="🔗 your personal invite link",
-        description=f"**{invite_url}**\n\nshare this link! anyone who joins through it will count as your referral.",
-        color=discord.Color.green(),
-    )
-    embed.add_field(name="current referrals", value=str(user["referrals"]), inline=True)
-
-    next_level = user["level"] + 1
-    if next_level in LEVEL_THRESHOLDS:
-        refs_needed = LEVEL_THRESHOLDS[next_level]["referrals"]
-        embed.add_field(
-            name=f"referrals to {ROLE_NAMES.get(next_level, f'level {next_level}')}",
-            value=f"{user['referrals']}/{refs_needed}",
-            inline=True,
-        )
-
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed)
+    except Exception as e:
+        print(f"error in /mylink: {e}")
+        await interaction.followup.send("something went wrong, check the logs!")
 
 
 @bot.tree.command(name="myreferrals", description="see who you've referred")
 async def myreferrals(interaction: discord.Interaction):
-    user_id = interaction.user.id
-    conn = get_conn()
-    c = conn.cursor()
-    c.execute(
-        "SELECT referred_id, timestamp FROM referral_log WHERE referrer_id = %s ORDER BY timestamp DESC LIMIT 20",
-        (user_id,),
-    )
-    rows = c.fetchall()
-    conn.close()
+    await interaction.response.defer(ephemeral=True)
+    try:
+        user_id = interaction.user.id
+        conn = get_conn()
+        c = conn.cursor()
+        c.execute(
+            "SELECT referred_id, timestamp FROM referral_log WHERE referrer_id = %s ORDER BY timestamp DESC LIMIT 20",
+            (user_id,),
+        )
+        rows = c.fetchall()
+        conn.close()
 
-    if not rows:
-        await interaction.response.send_message("you haven't referred anyone yet! use `/mylink` to get your invite link.", ephemeral=True)
-        return
+        if not rows:
+            await interaction.followup.send("you haven't referred anyone yet! use `/mylink` to get your invite link.")
+            return
 
-    lines = []
-    for referred_id, ts in rows:
-        member = interaction.guild.get_member(referred_id)
-        name = member.display_name if member else f"user {referred_id}"
-        date = time.strftime("%b %d, %Y", time.localtime(ts))
-        lines.append(f"- **{name}** (joined {date})")
+        lines = []
+        for referred_id, ts in rows:
+            member = interaction.guild.get_member(referred_id)
+            name = member.display_name if member else f"user {referred_id}"
+            date = time.strftime("%b %d, %Y", time.localtime(ts))
+            lines.append(f"- **{name}** (joined {date})")
 
-    user = get_user(user_id)
-    embed = discord.Embed(
-        title=f"🎉 your referrals ({user['referrals']} total)",
-        description="\n".join(lines),
-        color=discord.Color.green(),
-    )
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+        user = get_user(user_id)
+        embed = discord.Embed(
+            title=f"🎉 your referrals ({user['referrals']} total)",
+            description="\n".join(lines),
+            color=discord.Color.green(),
+        )
+        await interaction.followup.send(embed=embed)
+    except Exception as e:
+        print(f"error in /myreferrals: {e}")
+        await interaction.followup.send("something went wrong, check the logs!")
 
 
 @bot.tree.command(name="leaderboard", description="see the top members by xp")
 async def leaderboard(interaction: discord.Interaction):
-    top = get_leaderboard(10)
-    if not top:
-        await interaction.response.send_message("no one has earned xp yet!", ephemeral=True)
-        return
+    await interaction.response.defer()
+    try:
+        top = get_leaderboard(10)
+        if not top:
+            await interaction.followup.send("no one has earned xp yet!")
+            return
 
-    lines = []
-    medals = {0: "🥇", 1: "🥈", 2: "🥉"}
-    for i, u in enumerate(top):
-        member = interaction.guild.get_member(u["user_id"])
-        name = member.display_name if member else f"user {u['user_id']}"
-        medal = medals.get(i, f"**{i+1}.**")
-        role_name = ROLE_NAMES.get(u["level"], "unranked")
-        lines.append(f"{medal} **{name}** | {u['xp']} xp | {u['referrals']} refs | {role_name}")
+        lines = []
+        medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+        for i, u in enumerate(top):
+            member = interaction.guild.get_member(u["user_id"])
+            name = member.display_name if member else f"user {u['user_id']}"
+            medal = medals.get(i, f"**{i+1}.**")
+            role_name = ROLE_NAMES.get(u["level"], "unranked")
+            lines.append(f"{medal} **{name}** | {u['xp']} xp | {u['referrals']} refs | {role_name}")
 
-    embed = discord.Embed(
-        title="🏆 leaderboard",
-        description="\n".join(lines),
-        color=discord.Color.gold(),
-    )
-    await interaction.response.send_message(embed=embed)
+        embed = discord.Embed(
+            title="🏆 leaderboard",
+            description="\n".join(lines),
+            color=discord.Color.gold(),
+        )
+        await interaction.followup.send(embed=embed)
+    except Exception as e:
+        print(f"error in /leaderboard: {e}")
+        await interaction.followup.send("something went wrong, check the logs!")
 
 
 @bot.tree.command(name="setxp", description="(admin) set a user's xp manually")
 @app_commands.describe(member="target user", xp="new xp value")
 @app_commands.checks.has_permissions(administrator=True)
 async def setxp(interaction: discord.Interaction, member: discord.Member, xp: int):
-    user = get_user(member.id)
-    new_level = calculate_level(xp, user["referrals"])
-    update_user(member.id, xp=xp, level=new_level)
-    await sync_roles(member, new_level)
-    await interaction.response.send_message(
-        f"set **{member.display_name}**'s xp to {xp} (level {new_level})", ephemeral=True
-    )
+    await interaction.response.defer(ephemeral=True)
+    try:
+        user = get_user(member.id)
+        new_level = calculate_level(xp, user["referrals"])
+        update_user(member.id, xp=xp, level=new_level)
+        await sync_roles(member, new_level)
+        await interaction.followup.send(
+            f"set **{member.display_name}**'s xp to {xp} (level {new_level})"
+        )
+    except Exception as e:
+        print(f"error in /setxp: {e}")
+        await interaction.followup.send(f"error: {e}")
 
 
 @bot.tree.command(name="setreferrals", description="(admin) set a user's referral count")
 @app_commands.describe(member="target user", referrals="new referral count")
 @app_commands.checks.has_permissions(administrator=True)
 async def setreferrals(interaction: discord.Interaction, member: discord.Member, referrals: int):
-    user = get_user(member.id)
-    new_level = calculate_level(user["xp"], referrals)
-    update_user(member.id, referrals=referrals, level=new_level)
-    await sync_roles(member, new_level)
-    await interaction.response.send_message(
-        f"set **{member.display_name}**'s referrals to {referrals} (level {new_level})", ephemeral=True
-    )
+    await interaction.response.defer(ephemeral=True)
+    try:
+        user = get_user(member.id)
+        new_level = calculate_level(user["xp"], referrals)
+        update_user(member.id, referrals=referrals, level=new_level)
+        await sync_roles(member, new_level)
+        await interaction.followup.send(
+            f"set **{member.display_name}**'s referrals to {referrals} (level {new_level})"
+        )
+    except Exception as e:
+        print(f"error in /setreferrals: {e}")
+        await interaction.followup.send(f"error: {e}")
 
 
 # ---------------------------------------------------------------------------
