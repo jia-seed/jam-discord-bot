@@ -53,6 +53,9 @@ XP_PER_REFERRAL = 50            # xp earned when someone joins through your link
 XP_COOLDOWN_SECONDS = 60        # prevents spamming for xp
 IGNORED_PREFIXES = ("!", "/", "?", ".")  # ignore bot commands
 
+# channels where threads should be auto-archived (keeps sidebar clean)
+AUTO_ARCHIVE_CHANNELS = ["intros"]
+
 # channel where the bot will post referral announcements (set to None to use system channel)
 REFERRAL_CHANNEL_NAME = "general"
 
@@ -430,6 +433,20 @@ async def on_member_join(member: discord.Member):
         )
         if referrer_member:
             await sync_roles(referrer_member, new_level)
+
+
+@bot.event
+async def on_thread_create(thread: discord.Thread):
+    """auto-archive threads in specified channels to keep the sidebar clean."""
+    import asyncio
+    parent = thread.parent
+    if parent and parent.name in AUTO_ARCHIVE_CHANNELS:
+        # wait a bit so the thread creator can see their post
+        await asyncio.sleep(5)
+        try:
+            await thread.edit(archived=True)
+        except discord.Forbidden:
+            pass
 
 
 @bot.event
