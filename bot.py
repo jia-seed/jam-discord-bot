@@ -56,6 +56,11 @@ IGNORED_PREFIXES = ("!", "/", "?", ".")  # ignore bot commands
 # channels where threads should be auto-archived (keeps sidebar clean)
 AUTO_ARCHIVE_CHANNELS = ["intros"]
 
+# onboarding gate: new members must post in both channels to get verified
+# create a role called "verified" and restrict other channels to verified-only
+VERIFIED_ROLE_NAME = "verified"
+REQUIRED_CHANNELS = ["intros", "projects"]  # must post in both to get verified
+
 # channel where the bot will post level-up announcements
 ANNOUNCEMENT_CHANNEL_NAME = "commands"
 
@@ -98,6 +103,14 @@ def init_db():
         CREATE TABLE IF NOT EXISTS invite_owners (
             invite_code TEXT PRIMARY KEY,
             user_id BIGINT NOT NULL
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS onboarding_progress (
+            user_id BIGINT NOT NULL,
+            channel_name TEXT NOT NULL,
+            completed_at DOUBLE PRECISION NOT NULL,
+            PRIMARY KEY (user_id, channel_name)
         )
     """)
     conn.commit()
@@ -177,6 +190,37 @@ def get_leaderboard(limit: int = 10) -> list[dict]:
         {"user_id": r[0], "xp": r[1], "level": r[2], "referrals": r[3], "total_messages": r[4]}
         for r in rows
     ]
+
+
+# ---------------------------------------------------------------------------
+# Onboarding gate
+# ---------------------------------------------------------------------------
+
+def mark_channel_done(user_id: int, channel_name: str):
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute(
+        """INSERT INTO onboarding_progress (user_id, channel_name, completed_at)
+           VALUES (%s, %s, %s)
+           ON CONFLICT (user_id, channel_name) DO NOTHING""",
+        (user_id, channel_name, time.time()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_completed_channels(user_id: int) -> set:
+    conn = get_conn()
+    c = conn.cursor()
+    c.execute("SELECT channel_name FROM onboarding_progress WHERE user_id = %s", (user_id,))
+    rows = c.fetchall()
+    conn.close()
+    return {r[0] for r in rows}
+
+
+def is_onboarding_complete(user_id: int) -> bool:
+    completed = get_completed_channels(user_id)
+    return all(ch in completed for ch in REQUIRED_CHANNELS)
 
 
 # ---------------------------------------------------------------------------
@@ -371,23 +415,10 @@ async def on_ready():
     except Exception as e:
         print(f"failed to sync commands: {e}")
     print(f"jam bot is online as {bot.user}")
-    # generate invite links in the background so commands work immediately
-    for guild in bot.guilds:
-        bot.loop.create_task(generate_links_for_guild(guild))
 
 
-async def generate_links_for_guild(guild: discord.Guild):
-    """generate invite links for existing members in the background."""
-    import asyncio
-    count = 0
-    for member in guild.members:
-        if not member.bot:
-            await ensure_invite_link(member)
-            count += 1
-            # small delay to avoid rate limits
-            if count % 5 == 0:
-                await asyncio.sleep(2)
-    print(f"done generating invite links for {count} members in {guild.name}")
+# background invite generation disabled - invites are created on demand via /mylink
+# or when a new member joins. run cleanup_invites.py first if you hit the invite limit.
 
 
 @bot.event
@@ -522,6 +553,40 @@ async def on_message(message: discord.Message):
         return
 
     user_id = message.author.id
+    member = guild.get_member(user_id)
+
+    # --- onboarding gate ---
+    # check if message is in a required onboarding channel
+    channel_name = message.channel.name if hasattr(message.channel, "name") else ""
+    # also check parent channel for threads (e.g. forum posts in #intros)
+    if isinstance(message.channel, discord.Thread) and message.channel.parent:
+        channel_name = message.channel.parent.name
+
+    if channel_name in REQUIRED_CHANNELS and member:
+        mark_channel_done(user_id, channel_name)
+        # check if they just completed all requirements
+        if is_onboarding_complete(user_id):
+            verified_role = discord.utils.get(guild.roles, name=VERIFIED_ROLE_NAME)
+            if verified_role and verified_role not in member.roles:
+                await member.add_roles(verified_role)
+                announce_ch = discord.utils.get(guild.text_channels, name=ANNOUNCEMENT_CHANNEL_NAME)
+                if announce_ch:
+                    await announce_ch.send(
+                        f"<@{user_id}> completed onboarding and is now verified!"
+                    )
+        else:
+            # tell them what's left
+            completed = get_completed_channels(user_id)
+            remaining = [ch for ch in REQUIRED_CHANNELS if ch not in completed]
+            verified_role = discord.utils.get(guild.roles, name=VERIFIED_ROLE_NAME)
+            if verified_role and verified_role not in member.roles:
+                try:
+                    await message.author.send(
+                        f"nice! now post in **#{'**, **#'.join(remaining)}** to unlock the full server."
+                    )
+                except discord.Forbidden:
+                    pass
+
     now = time.time()
 
     # cooldown check
@@ -531,17 +596,6 @@ async def on_message(message: discord.Message):
         return
 
     xp_cooldowns[user_id] = now
-
-    # get member object
-    member = guild.get_member(user_id)
-
-    # make sure this user has an invite link (fallback if they missed the dm)
-    # this is non-critical, so don't let it block xp tracking
-    if member:
-        try:
-            await ensure_invite_link(member)
-        except Exception:
-            pass
 
     # calculate xp earned
     xp_earned = XP_PER_MESSAGE
