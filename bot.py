@@ -229,7 +229,7 @@ async def sync_roles(member: discord.Member, new_level: int):
 
 
 def level_emoji(level: int) -> str:
-    return {1: "🍓", 2: "🫐", 3: "✨"}.get(level, "")
+    return {1: "🍓", 2: "🫐", 3: "🍯"}.get(level, "")
 
 
 async def cache_invites(guild: discord.Guild):
@@ -293,22 +293,65 @@ async def ensure_invite_link(member: discord.Member) -> str | None:
     return invite.url
 
 
-async def dm_invite_link(member: discord.Member, invite_url: str):
-    """send the member their personal invite link via dm."""
+async def dm_welcome(member: discord.Member, invite_url: str = None):
+    """send the new member a welcome DM with onboarding info."""
     try:
         embed = discord.Embed(
-            title="🔗 your personal invite link",
+            title=f"welcome to {member.guild.name}!",
             description=(
-                f"**{invite_url}**\n\n"
-                f"share this with friends! anyone who joins through your link "
-                f"earns you referral credit toward leveling up."
+                f"hey **{member.display_name}**, we're glad you're here! "
+                f"here's everything you need to get started."
             ),
-            color=discord.Color.green(),
+            color=discord.Color.from_str("#ff6b6b"),
         )
-        embed.set_footer(text="you can also use /mylink anytime to see this again")
+
+        embed.add_field(
+            name="introduce yourself",
+            value="head over to **#intros** and tell us a bit about yourself! who you are, what you're working on, what brings you here.",
+            inline=False,
+        )
+
+        embed.add_field(
+            name="share your projects",
+            value="got something you're building? drop it in **#projects**! we love seeing what people are working on.",
+            inline=False,
+        )
+
+        embed.add_field(
+            name="ranking system",
+            value=(
+                "you earn **xp** by chatting and referring friends:\n"
+                f"- **{XP_PER_MESSAGE} xp** per message ({XP_PER_MESSAGE + XP_BONUS_LONG_MESSAGE} xp for longer messages)\n"
+                f"- **{XP_PER_REFERRAL} xp** per friend you invite\n\n"
+                f"🍓 **strawberry jam** — {LEVEL_THRESHOLDS[1]['xp']} xp\n"
+                f"🫐 **blueberry jam** — {LEVEL_THRESHOLDS[2]['xp']} xp\n"
+                f"🍯 **golden jam** — {LEVEL_THRESHOLDS[3]['xp']} xp"
+            ),
+            inline=False,
+        )
+
+        if invite_url:
+            embed.add_field(
+                name="your referral link",
+                value=f"**{invite_url}**\nshare this with friends to earn xp! use `/mylink` anytime to see it again.",
+                inline=False,
+            )
+
+        embed.add_field(
+            name="useful commands",
+            value=(
+                "`/rank` — check your xp and level\n"
+                "`/leaderboard` — see the top members\n"
+                "`/mylink` — get your referral link\n"
+                "`/myreferrals` — see who you've referred"
+            ),
+            inline=False,
+        )
+
+        embed.set_footer(text="have fun and don't be a stranger!")
         await member.send(embed=embed)
     except discord.Forbidden:
-        # user has dms disabled, that's fine, they can use /mylink
+        # user has dms disabled
         pass
 
 
@@ -394,24 +437,24 @@ async def on_member_join(member: discord.Member):
 
     if referrer_id is None or referrer_id == member.id:
         # still generate an invite link for the new member even if no referrer found
+        invite_url = None
         try:
             invite_url = await ensure_invite_link(member)
-            if invite_url:
-                await dm_invite_link(member, invite_url)
         except Exception:
             pass
+        await dm_welcome(member, invite_url)
         return
 
     # record the referral
     success = add_referral(referrer_id, member.id)
 
     # generate an invite link for the new member and dm it
+    invite_url = None
     try:
         invite_url = await ensure_invite_link(member)
-        if invite_url:
-            await dm_invite_link(member, invite_url)
     except Exception:
         pass
+    await dm_welcome(member, invite_url)
 
     if not success:
         return
@@ -430,7 +473,7 @@ async def on_member_join(member: discord.Member):
 
     if channel:
         await channel.send(
-            f"🎉 **{member.display_name}** joined via **{referrer_name}**'s invite! "
+            f"**{member.display_name}** joined via **{referrer_name}**'s invite! "
             f"{referrer_name} earned {XP_PER_REFERRAL} xp and now has {new_referrals} referral(s)."
         )
 
@@ -587,7 +630,7 @@ async def mylink(interaction: discord.Interaction):
         user = get_user(interaction.user.id)
 
         embed = discord.Embed(
-            title="🔗 your personal invite link",
+            title="your personal invite link",
             description=f"**{invite_url}**\n\nshare this link! anyone who joins through it will count as your referral.",
             color=discord.Color.green(),
         )
@@ -635,7 +678,7 @@ async def myreferrals(interaction: discord.Interaction):
 
         user = get_user(user_id)
         embed = discord.Embed(
-            title=f"🎉 your referrals ({user['referrals']} total)",
+            title=f"your referrals ({user['referrals']} total)",
             description="\n".join(lines),
             color=discord.Color.green(),
         )
@@ -655,7 +698,7 @@ async def leaderboard(interaction: discord.Interaction):
             return
 
         lines = []
-        medals = {0: "🥇", 1: "🥈", 2: "🥉"}
+        medals = {0: "**1.**", 1: "**2.**", 2: "**3.**"}
         for i, u in enumerate(top):
             member = interaction.guild.get_member(u["user_id"])
             name = member.display_name if member else f"user {u['user_id']}"
@@ -664,7 +707,7 @@ async def leaderboard(interaction: discord.Interaction):
             lines.append(f"{medal} **{name}** | {u['xp']} xp | {u['referrals']} refs | {role_name}")
 
         embed = discord.Embed(
-            title="🏆 leaderboard",
+            title="leaderboard",
             description="\n".join(lines),
             color=discord.Color.gold(),
         )
@@ -707,6 +750,88 @@ async def setreferrals(interaction: discord.Interaction, member: discord.Member,
         )
     except Exception as e:
         print(f"error in /setreferrals: {e}")
+        await interaction.followup.send(f"error: {e}")
+
+
+@bot.tree.command(name="setup-welcome", description="(admin) post the welcome/onboarding embed in this channel")
+@app_commands.checks.has_permissions(administrator=True)
+async def setup_welcome(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        guild = interaction.guild
+
+        # main welcome embed
+        welcome = discord.Embed(
+            title="welcome to jam!",
+            description=(
+                "we're a community of builders, creators, and curious minds. "
+                "here's how to get started and make the most of your time here."
+            ),
+            color=discord.Color.from_str("#ff6b6b"),
+        )
+
+        welcome.add_field(
+            name="1. introduce yourself",
+            value="head to **#intros** and tell us who you are, what you're working on, and what brought you here!",
+            inline=False,
+        )
+
+        welcome.add_field(
+            name="2. share your projects",
+            value="building something cool? show it off in **#projects**! we love seeing what people are creating.",
+            inline=False,
+        )
+
+        welcome.add_field(
+            name="3. start chatting",
+            value="jump into any channel and say hi. every message earns you xp toward leveling up!",
+            inline=False,
+        )
+
+        # ranking embed
+        ranking = discord.Embed(
+            title="ranking system",
+            description="earn xp by chatting and inviting friends. level up to unlock roles!",
+            color=discord.Color.from_str("#748ffc"),
+        )
+
+        ranking.add_field(
+            name="how to earn xp",
+            value=(
+                f"**{XP_PER_MESSAGE} xp** per message ({XP_PER_MESSAGE + XP_BONUS_LONG_MESSAGE} xp for longer messages)\n"
+                f"**{XP_PER_REFERRAL} xp** per friend you invite\n"
+                f"{XP_COOLDOWN_SECONDS}s cooldown between messages"
+            ),
+            inline=False,
+        )
+
+        ranking.add_field(
+            name="levels",
+            value=(
+                f"🍓 **strawberry jam** — {LEVEL_THRESHOLDS[1]['xp']} xp\n"
+                f"🫐 **blueberry jam** — {LEVEL_THRESHOLDS[2]['xp']} xp\n"
+                f"🍯 **golden jam** — {LEVEL_THRESHOLDS[3]['xp']} xp"
+            ),
+            inline=False,
+        )
+
+        ranking.add_field(
+            name="commands",
+            value=(
+                "`/rank` — check your xp and level\n"
+                "`/leaderboard` — see the top members\n"
+                "`/mylink` — get your personal referral link\n"
+                "`/myreferrals` — see who you've referred"
+            ),
+            inline=False,
+        )
+
+        ranking.set_footer(text="have fun and don't be a stranger!")
+
+        await interaction.channel.send(embeds=[welcome, ranking])
+        await interaction.followup.send("welcome embeds posted!")
+    except Exception as e:
+        print(f"error in /setup-welcome: {e}")
         await interaction.followup.send(f"error: {e}")
 
 
