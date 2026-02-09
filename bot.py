@@ -912,6 +912,18 @@ async def setup_welcome(interaction: discord.Interaction):
         await interaction.followup.send(f"error: {e}")
 
 
+@bot.tree.command(name="test-welcome", description="(admin) send yourself the welcome DM to preview it")
+@app_commands.checks.has_permissions(administrator=True)
+async def test_welcome(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        await dm_welcome(interaction.user, "https://discord.gg/example-link")
+        await interaction.followup.send("sent! check your DMs.")
+    except Exception as e:
+        print(f"error in /test-welcome: {e}")
+        await interaction.followup.send(f"error: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Run
 # ---------------------------------------------------------------------------
