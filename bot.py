@@ -794,7 +794,7 @@ async def bread(interaction: discord.Interaction):
     await interaction.response.send_message(f"*{random.choice(breads)}*")
 
 
-
+@bot.tree.command(name="setxp", description="(admin) set a user's xp manually")
 @app_commands.describe(member="target user", xp="new xp value")
 @app_commands.checks.has_permissions(administrator=True)
 async def setxp(interaction: discord.Interaction, member: discord.Member, xp: int):
@@ -828,29 +828,6 @@ async def setreferrals(interaction: discord.Interaction, member: discord.Member,
     except Exception as e:
         print(f"error in /setreferrals: {e}")
         await interaction.followup.send(f"error: {e}")
-
-
-@bot.tree.command(name="bread", description="receive a blessed piece of bread")
-async def bread(interaction: discord.Interaction):
-    import random
-    breads = [
-        "a warm loaf of sourdough is placed gently in your hands.",
-        "a golden baguette appears out of thin air. it's still warm.",
-        "a perfectly toasted slice of bread materializes before you.",
-        "a fluffy brioche roll is bestowed upon you with great ceremony.",
-        "a rustic ciabatta descends from the heavens. you are chosen.",
-        "a single croissant floats toward you. buttery. flaky. perfect.",
-        "a thick slice of banana bread is offered to you. it smells incredible.",
-        "a pumpernickel loaf appears. dark, mysterious, and delicious.",
-        "an entire focaccia slides across the table toward you. rosemary and all.",
-        "a pretzel twist lands in your lap. lightly salted. still warm.",
-        "a naan bread unfurls before you like a warm blanket.",
-        "a pita pocket opens up, ready to hold your dreams.",
-        "a cornbread square is presented on a tiny golden plate.",
-        "a marble rye materializes. it whispers ancient bread wisdom.",
-        "a challah braid descends, glistening with egg wash.",
-    ]
-    await interaction.response.send_message(f"*{random.choice(breads)}*")
 
 
 @bot.tree.command(name="setup-welcome", description="(admin) post the welcome/onboarding embed in this channel")
