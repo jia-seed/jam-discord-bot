@@ -380,6 +380,12 @@ async def dm_welcome(member: discord.Member, invite_url: str = None):
                 value=f"**{invite_url}**\nshare this with friends to earn xp! use `/mylink` anytime to see it again.",
                 inline=False,
             )
+        else:
+            embed.add_field(
+                name="invite your friends",
+                value="use `/mylink` in the server to get your personal referral link. share it with friends to earn 50 xp per invite!",
+                inline=False,
+            )
 
         embed.add_field(
             name="useful commands",
@@ -467,25 +473,14 @@ async def on_member_join(member: discord.Member):
         referrer_id = used_invite.inviter.id
 
     if referrer_id is None or referrer_id == member.id:
-        # still generate an invite link for the new member even if no referrer found
-        invite_url = None
-        try:
-            invite_url = await ensure_invite_link(member)
-        except Exception:
-            pass
-        await dm_welcome(member, invite_url)
+        await dm_welcome(member)
         return
 
     # record the referral
     success = add_referral(referrer_id, member.id)
 
-    # generate an invite link for the new member and dm it
-    invite_url = None
-    try:
-        invite_url = await ensure_invite_link(member)
-    except Exception:
-        pass
-    await dm_welcome(member, invite_url)
+    # welcome the new member (no auto invite, they use /mylink)
+    await dm_welcome(member)
 
     if not success:
         return
