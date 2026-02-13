@@ -36,6 +36,7 @@ ROLE_NAMES = {
     1: "strawberry jam",
     2: "blueberry jam",
     3: "golden jam",
+    4: "diamond jam",
 }
 
 # level thresholds: (xp_required, referrals_required)
@@ -45,6 +46,7 @@ LEVEL_THRESHOLDS = {
     1: {"xp": 100},
     2: {"xp": 500},
     3: {"xp": 1500},
+    4: {"xp": 8000},
 }
 
 XP_PER_MESSAGE = 10
@@ -273,7 +275,7 @@ async def sync_roles(member: discord.Member, new_level: int):
 
 
 def level_emoji(level: int) -> str:
-    return {1: "🍓", 2: "🫐", 3: "🍯"}.get(level, "")
+    return {1: "🍓", 2: "🫐", 3: "🍯", 4: "💎"}.get(level, "")
 
 
 async def cache_invites(guild: discord.Guild):
@@ -369,7 +371,8 @@ async def dm_welcome(member: discord.Member, invite_url: str = None):
                 f"- **{XP_PER_REFERRAL} xp** per friend you invite\n\n"
                 f"🍓 **strawberry jam** — {LEVEL_THRESHOLDS[1]['xp']} xp\n"
                 f"🫐 **blueberry jam** — {LEVEL_THRESHOLDS[2]['xp']} xp\n"
-                f"🍯 **golden jam** — {LEVEL_THRESHOLDS[3]['xp']} xp"
+                f"🍯 **golden jam** — {LEVEL_THRESHOLDS[3]['xp']} xp\n"
+                f"💎 **diamond jam** — {LEVEL_THRESHOLDS[4]['xp']} xp"
             ),
             inline=False,
         )
@@ -882,7 +885,8 @@ async def setup_welcome(interaction: discord.Interaction):
             value=(
                 f"🍓 **strawberry jam** — {LEVEL_THRESHOLDS[1]['xp']} xp\n"
                 f"🫐 **blueberry jam** — {LEVEL_THRESHOLDS[2]['xp']} xp\n"
-                f"🍯 **golden jam** — {LEVEL_THRESHOLDS[3]['xp']} xp"
+                f"🍯 **golden jam** — {LEVEL_THRESHOLDS[3]['xp']} xp\n"
+                f"💎 **diamond jam** — {LEVEL_THRESHOLDS[4]['xp']} xp"
             ),
             inline=False,
         )
