@@ -8,8 +8,8 @@ Roles:
   - Golden Jam (Level 3): 1500 XP or 15 referrals
 
 XP Rules:
-  - 1 XP per message (with 60s cooldown to prevent spam)
-  - Bonus XP for longer messages (2 XP if 50+ chars)
+  - 10 XP per message (with 60s cooldown to prevent spam)
+  - Bonus XP for longer messages (5 XP if 50+ chars)
 
 Referrals:
   - /mylink generates a personal invite link for the user
