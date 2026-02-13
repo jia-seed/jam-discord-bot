@@ -37,6 +37,8 @@ ROLE_NAMES = {
     2: "blueberry jam",
     3: "golden jam",
     4: "diamond jam",
+    5: "platinum jam",
+    6: "infinity jam",
 }
 
 # level thresholds: (xp_required, referrals_required)
@@ -47,6 +49,8 @@ LEVEL_THRESHOLDS = {
     2: {"xp": 500},
     3: {"xp": 1500},
     4: {"xp": 8000},
+    5: {"xp": 15000},
+    6: {"xp": 25000},
 }
 
 XP_PER_MESSAGE = 10
@@ -275,7 +279,7 @@ async def sync_roles(member: discord.Member, new_level: int):
 
 
 def level_emoji(level: int) -> str:
-    return {1: "🍓", 2: "🫐", 3: "🍯", 4: "💎"}.get(level, "")
+    return {1: "🍓", 2: "🫐", 3: "🍯", 4: "💎", 5: "✨", 6: "♾️"}.get(level, "")
 
 
 async def cache_invites(guild: discord.Guild):
@@ -372,7 +376,9 @@ async def dm_welcome(member: discord.Member, invite_url: str = None):
                 f"🍓 **strawberry jam** — {LEVEL_THRESHOLDS[1]['xp']} xp\n"
                 f"🫐 **blueberry jam** — {LEVEL_THRESHOLDS[2]['xp']} xp\n"
                 f"🍯 **golden jam** — {LEVEL_THRESHOLDS[3]['xp']} xp\n"
-                f"💎 **diamond jam** — {LEVEL_THRESHOLDS[4]['xp']} xp"
+                f"💎 **diamond jam** — {LEVEL_THRESHOLDS[4]['xp']} xp\n"
+                f"✨ **platinum jam** — {LEVEL_THRESHOLDS[5]['xp']} xp\n"
+                f"♾️ **infinity jam** — {LEVEL_THRESHOLDS[6]['xp']} xp"
             ),
             inline=False,
         )
@@ -886,7 +892,9 @@ async def setup_welcome(interaction: discord.Interaction):
                 f"🍓 **strawberry jam** — {LEVEL_THRESHOLDS[1]['xp']} xp\n"
                 f"🫐 **blueberry jam** — {LEVEL_THRESHOLDS[2]['xp']} xp\n"
                 f"🍯 **golden jam** — {LEVEL_THRESHOLDS[3]['xp']} xp\n"
-                f"💎 **diamond jam** — {LEVEL_THRESHOLDS[4]['xp']} xp"
+                f"💎 **diamond jam** — {LEVEL_THRESHOLDS[4]['xp']} xp\n"
+                f"✨ **platinum jam** — {LEVEL_THRESHOLDS[5]['xp']} xp\n"
+                f"♾️ **infinity jam** — {LEVEL_THRESHOLDS[6]['xp']} xp"
             ),
             inline=False,
         )
