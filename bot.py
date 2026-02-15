@@ -1,4 +1,4 @@
-]"""
+"""
 Jam Bot - Discord Ranking System
 Tracks messages (XP) and referrals via invite links to assign roles automatically.
 
