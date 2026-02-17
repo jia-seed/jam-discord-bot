@@ -967,9 +967,9 @@ async def test_welcome(interaction: discord.Interaction):
         await interaction.followup.send(f"error: {e}")
 
 
-@bot.tree.command(name="am-i-jam", description="are you jam?")
+@bot.tree.command(name="am-i-jam", description="am i jam?")
 async def am_i_jam(interaction: discord.Interaction):
-    result = random.choice(["you are a jam 🍓", "you are a loafer 🍞"])
+    result = random.choice(["You're the bread to my jam", "everyone is jam in their own way, but you, you'll always remain my bread"])
     await interaction.response.send_message(result)
 
 
