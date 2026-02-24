@@ -464,6 +464,13 @@ async def on_member_join(member: discord.Member):
     """detect which invite was used by comparing before/after use counts."""
     guild = member.guild
 
+    # simple public welcome message for every person who joins
+    if not member.bot:
+        # prefer a #welcome channel if it exists, otherwise fall back to system channel
+        welcome_channel = discord.utils.get(guild.text_channels, name="welcome") or guild.system_channel
+        if welcome_channel:
+            await welcome_channel.send(f"welcome to **{guild.name}**, {member.mention}!")
+
     async with invite_lock:
         old_cache = invite_cache.get(guild.id, {})
 
