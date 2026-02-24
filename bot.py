@@ -21,6 +21,8 @@ import asyncio
 import os
 import time
 import random
+import hmac
+import hashlib
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -28,6 +30,7 @@ import psycopg2
 from psycopg2 import pool as pg_pool
 from psycopg2 import sql
 from contextlib import contextmanager
+from aiohttp import web
 
 # ---------------------------------------------------------------------------
 # Configuration - edit these to customize your bot
@@ -78,6 +81,14 @@ ANNOUNCEMENT_CHANNEL_NAME = "commands"
 REFERRAL_CHANNEL_NAME = "commands"
 
 # ---------------------------------------------------------------------------
+# GitHub Integration Configuration
+# ---------------------------------------------------------------------------
+# Webhook secret from GitHub (configure this in both GitHub and your env vars)
+GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+# Channel where PR merges will be announced
+PR_ANNOUNCEMENT_CHANNEL_NAME = os.getenv("PR_ANNOUNCEMENT_CHANNEL_NAME", "testing-announcements")
+
+# ---------------------------------------------------------------------------
 # Database setup (PostgreSQL)
 # ---------------------------------------------------------------------------
 
@@ -117,6 +128,12 @@ def init_db():
             )
         """)
         c.execute("""
+            CREATE TABLE IF NOT EXISTS github_accounts (
+                user_id BIGINT PRIMARY KEY,
+                github_username TEXT UNIQUE NOT NULL
+            )
+        """)
+        c.execute("""
             CREATE TABLE IF NOT EXISTS referral_log (
                 id SERIAL PRIMARY KEY,
                 referrer_id BIGINT NOT NULL,
@@ -139,6 +156,25 @@ def init_db():
             )
         """)
         conn.commit()
+
+
+def link_github_account(user_id: int, github_username: str):
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(
+            """INSERT INTO github_accounts (user_id, github_username) VALUES (%s, %s)
+               ON CONFLICT (user_id) DO UPDATE SET github_username = EXCLUDED.github_username""",
+            (user_id, github_username),
+        )
+        conn.commit()
+
+
+def get_discord_id_by_github(github_username: str) -> int | None:
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute("SELECT user_id FROM github_accounts WHERE LOWER(github_username) = LOWER(%s)", (github_username,))
+        row = c.fetchone()
+        return row[0] if row else None
 
 
 def get_user(user_id: int) -> dict:
@@ -1018,6 +1054,18 @@ async def test_welcome(interaction: discord.Interaction):
         await interaction.followup.send(f"error: {e}")
 
 
+@bot.tree.command(name="link-github", description="link your github account so the bot can tag you in merged PRs!")
+@app_commands.describe(github_username="your exact github username")
+async def link_github_cmd(interaction: discord.Interaction, github_username: str):
+    await interaction.response.defer(ephemeral=True)
+    try:
+        link_github_account(interaction.user.id, github_username)
+        await interaction.followup.send(f"✅ successfully linked your discord account to github user **{github_username}**! you will now be tagged when your PRs are merged.")
+    except Exception as e:
+        print(f"error in /link-github: {e}")
+        await interaction.followup.send("❌ could not link account. someone else might have already linked this github username.")
+
+
 @bot.tree.command(name="am-i-jam", description="am i jam?")
 async def am_i_jam(interaction: discord.Interaction):
     result = random.choice(["You're the bread to my jam", "everyone is jam in their own way, but you, you'll always remain my bread"])
@@ -1046,6 +1094,86 @@ async def eight_ball(interaction: discord.Interaction, question: str):
     embed.set_footer(text=f"asked by {interaction.user.display_name}")
     await interaction.response.send_message(embed=embed)
 
+
+# ---------------------------------------------------------------------------
+# Webhook Server for GitHub
+# ---------------------------------------------------------------------------
+
+async def github_webhook(request):
+    body = await request.read()
+    
+    # Validate the GitHub webhook signature using your secret to ensure security
+    if GITHUB_WEBHOOK_SECRET:
+        signature = request.headers.get("X-Hub-Signature-256")
+        if not signature:
+            return web.Response(text="Missing signature", status=401)
+        
+        mac = hmac.new(GITHUB_WEBHOOK_SECRET.encode(), msg=body, digestmod=hashlib.sha256)
+        expected_signature = "sha256=" + mac.hexdigest()
+        if not hmac.compare_digest(expected_signature, signature):
+            return web.Response(text="Invalid signature", status=401)
+    
+    event = request.headers.get("X-GitHub-Event", "ping")
+    if event == "ping":
+        return web.Response(text="pong")
+    
+    if event == "pull_request":
+        data = await request.json()
+        action = data.get("action")
+        pr = data.get("pull_request", {})
+        merged = pr.get("merged", False)
+        
+        if action == "closed" and merged:
+            repo_full_name = data.get("repository", {}).get("full_name", "unknown/unknown")
+            user_login = pr.get("user", {}).get("login", "someone")
+            pr_title = pr.get("title", "A PR")
+            pr_url = pr.get("html_url", "")
+            
+            commit_msg = pr_title[:50] + "..." if len(pr_title) > 50 else pr_title
+            
+            # Fetch Discord ID mapping to tag the user
+            discord_id = get_discord_id_by_github(user_login)
+            author_display = f"<@{discord_id}>" if discord_id else user_login
+            
+            # Create a nice looking embed for Discord
+            embed = discord.Embed(
+                title="🎉 Pull Request Merged!",
+                description=f"[{pr_title}]({pr_url})",
+                color=discord.Color.brand_green()
+            )
+            embed.add_field(name="Repository", value=repo_full_name, inline=True)
+            embed.add_field(name="Commit Msg", value=commit_msg, inline=True)
+            embed.add_field(name="Author", value=author_display, inline=True)
+            
+            current_time = time.strftime("%d/%m/%Y %H:%M")
+            embed.set_footer(text=f"Jam Bot CI • {current_time}")
+            
+            # Broadcast to the configured channel in all the servers the bot is in
+            for guild in bot.guilds:
+                channel = discord.utils.get(guild.text_channels, name=PR_ANNOUNCEMENT_CHANNEL_NAME)
+                if channel:
+                    await channel.send(content="@everyone", embed=embed)
+                    
+    return web.Response(text="ok")
+
+async def web_server():
+    app = web.Application()
+    app.router.add_post("/github-webhook", github_webhook)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Heroku/Railway usually provide a PORT environment variable.
+    # We default to 8080.
+    port = int(os.getenv("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"GitHub Webhook server started on port {port}")
+
+async def setup_hook():
+    # Start the custom web server when the bot starts
+    bot.loop.create_task(web_server())
+
+bot.setup_hook = setup_hook
 
 # ---------------------------------------------------------------------------
 # Run

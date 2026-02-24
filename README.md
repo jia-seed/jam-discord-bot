@@ -64,6 +64,7 @@ every message earns **10 xp** (with a 60-second cooldown so you can't spam your 
 | `/joined` | check when a member joined the server |
 | `/bread` | receive a random bread blessing |
 | `/am-i-jam` | deep philosophical question |
+| `/link-github` | link your github account to be tagged in PR merges |
 
 ### admin commands
 
@@ -137,6 +138,7 @@ a magic 8-ball with 20 possible responses — some positive, some uncertain, som
 - **onboarding gate** — new members must post in #intros and #projects to get verified
 - **thread management** — auto-archives threads in specified channels to keep things tidy
 - **welcome system** — dms new members with onboarding info and their personal referral link
+- **github webhooks** — automatically announce merged PRs to a channel and ping the author
 
 ## setup
 
@@ -159,6 +161,8 @@ pip install -r requirements.txt
 ```env
 DISCORD_BOT_TOKEN=your_bot_token_here
 DATABASE_URL=your_postgres_connection_string
+GITHUB_WEBHOOK_SECRET=your_secure_random_string
+PR_ANNOUNCEMENT_CHANNEL_NAME=testing-announcements
 ```
 
 ### server setup
@@ -179,10 +183,10 @@ then run `/setup-welcome` in any channel to post the welcome embeds.
 
 ### deploy
 
-the bot includes a `Procfile` for easy deployment to railway or heroku:
+the bot runs a built-in web server to listen for GitHub webhooks, so it includes a `Procfile` for easy deployment to railway or heroku. Note that it runs as a `web` process to expose the port correctly:
 
 ```
-worker: python bot.py
+web: python bot.py
 ```
 
 on railway, the `DATABASE_URL` is set automatically when you add the postgres plugin.
